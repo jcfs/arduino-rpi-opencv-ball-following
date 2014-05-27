@@ -1,7 +1,7 @@
 #!/usr/bin/python
 import numpy as np
 import wiringpi2 as wiringpi
-import sys, getopt, math, os, serial, cv2
+import sys, getopt, math, os, serial, cv2, time
 
 SCREEN_WIDTH = 320
 SCREEN_HEIGHT = 240
@@ -9,35 +9,42 @@ SCREEN_HEIGHT = 240
 GREEN_PIN = 5
 RED_PIN = 4
 
+HSV_MIN = np.array((45, 100, 29))
+HSV_MAX = np.array((65, 256, 256))
+
 panServoAngle = 90
 tiltServoAngle = 180
 
-hsv_min = np.array((0, 55, 90))
-hsv_max = np.array((10, 255, 255))
-
 def find_ball(capture, noimage, nothreshold):
-    global hsv_min
-    global hsv_max
+    global HSV_MIN
+    global HSV_MAX
     
-    Cx, Cy, W, H, X, Y = 0, 0, 0, 0, 0, 0
+    Cx, Cy = 0, 0
     maxdiag = 0
     
     ret, frame = capture.read()
 
+    frame = cv2.resize(frame, (0,0), fx=0.5, fy=0.5) 
+
     if frame is not None:
         hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        thresholded = cv2.inRange(hsv_frame, hsv_min, hsv_max)
+        thresholded = cv2.inRange(hsv_frame, HSV_MIN, HSV_MAX)
         #thresholded = cv2.erode(thresholded, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5)))
         #thresholded = cv2.dilate(thresholded, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5)))
         #thresholded = cv2.erode(thresholded, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5)))
         #thresholded = cv2.dilate(thresholded, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5)))
 
-        #circles = cv2.HoughCircles(thresholded, cv2.HOUGH_GRADIENT, 1, 10, np.array([]), 80, 30, 2, 100)
+        _, contours, hierarchy = cv2.findContours(thresholded.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-        #print circles
-        #if circles is not None:
-        #    for c in circles[0]:
-        #        cv2.circle(frame, (c[0],c[1]), c[2], (0,255,255),5)
+        for cnt in contours:
+            x, y, w, h = cv2.boundingRect(cnt)
+            cx, cy = x + w/2, y + h/2
+            current_diag = math.sqrt(w*w+h*h)
+            if (current_diag > maxdiag):
+                maxdiag, Cx, Cy=current_diag, cx, cy
+       
+        if maxdiag > 0:
+            cv2.circle(frame, (Cx, Cy), int(maxdiag), (0,255,255),5)
 
         if noimage == False:
             cv2.imshow("original image",frame)
@@ -46,8 +53,9 @@ def find_ball(capture, noimage, nothreshold):
             cv2.imshow("thresholded image",thresholded)
 
         cv2.waitKey(1)
+
+
  
-        print maxdiag
     else:
         print "Cannot get frame"
 
@@ -58,22 +66,11 @@ def update_servos(diagonal, center_x, center_y):
     global panServoAngle
     global tiltServoAngle    
 
-    increment_pan, increment_tilt = 4, 4
+    increment_pan, increment_tilt = 1, 1
 
     if diagonal > 0:
         # focal distance, this must be adapted
-        distance = 5 * 420 / diagonal
-
-        if distance > 30:
-            thresh =  20
-        else:
-            thresh = 40
-
-        if center_x > SCREEN_WIDTH - 40 or center_x < 40:
-            increment_pan = 4
-
-        if center_y > SCREEN_HEIGHT - 40 or center_y < 40:
-            increment_tilt = 4
+        thresh =  20
 
         if center_x < SCREEN_WIDTH/2-thresh:
             panServoAngle -= increment_pan
@@ -89,7 +86,7 @@ def update_servos(diagonal, center_x, center_y):
             tiltServoAngle -= increment_tilt
             tiltServoAngle = max(0, tiltServoAngle)
 
-        print panServoAngle, tiltServoAngle
+        #print panServoAngle, tiltServoAngle
 
 def send_servo_update(port):
     global panServoAngle
@@ -143,9 +140,9 @@ def main():
 
     #setup camera capture
     print('Setting up webcam'),
-    capture = cv2.VideoCapture(0)
-    capture.set(3, SCREEN_WIDTH)
-    capture.set(4, SCREEN_HEIGHT)
+    capture = cv2.VideoCapture(-1)
+    #capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 320);
+    #capture.set(cv2.CAP_PROP_FRAME_WIDTH, 240);
 
     if (capture is not None):
         print('... OK')
@@ -163,7 +160,7 @@ def main():
         print "Wiringpi setup skipped"
 
     # setup serial
-    if noleds == False:
+    if noservos == False:
         print("Setting up serial connection to Arduino"),
         port = serial.Serial("/dev/ttyUSB0", baudrate=115200, timeout=3.0)
         if (port is not None):
@@ -174,6 +171,9 @@ def main():
         print "Serial setup skipped"
 
     print "Starting object tracking"
+
+    frames = 0
+    start_time = time.time()
     while True:
         diagonal, center_x, center_y = find_ball(capture, noimage, nothreshold)
         
@@ -183,6 +183,14 @@ def main():
 
         if noleds == False:
             update_leds(diagonal)
+
+        frames += 1
+        currtime = time.time()
+        numsecs = currtime - start_time
+        fps = frames / numsecs
+
+        sys.stdout.write("Found ball at: (%d, %d)       "%(center_x,center_y) + "Current FPS: %d     \t\t\r" %fps)
+        sys.stdout.flush()
 
     return
 
