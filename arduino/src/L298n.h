@@ -20,8 +20,8 @@
 #define L298N_H
 
 #define TOP_SPEED           255
-#define MOTOR_A_TOP_SPEED   100
-#define MOTOR_B_TOP_SPEED   100
+#define MOTOR_A_TOP_SPEED   110
+#define MOTOR_B_TOP_SPEED   110
 
 class L298n {
     private:

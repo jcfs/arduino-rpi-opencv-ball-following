@@ -29,6 +29,8 @@ def find_ball(capture, noimage, nothreshold):
     if frame is not None:
         hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         thresholded = cv2.inRange(hsv_frame, HSV_MIN, HSV_MAX)
+
+        # Raspberry pi can't handle this without too much of a fps loss
         #thresholded = cv2.erode(thresholded, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5)))
         #thresholded = cv2.dilate(thresholded, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5)))
         #thresholded = cv2.erode(thresholded, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5)))
@@ -69,7 +71,6 @@ def update_servos(diagonal, center_x, center_y):
     increment_pan, increment_tilt = 1, 1
 
     if diagonal > 0:
-        # focal distance, this must be adapted
         thresh =  20
 
         if center_x < SCREEN_WIDTH/2-thresh:
@@ -86,8 +87,6 @@ def update_servos(diagonal, center_x, center_y):
             tiltServoAngle -= increment_tilt
             tiltServoAngle = max(0, tiltServoAngle)
 
-        #print panServoAngle, tiltServoAngle
-
 def send_servo_update(port):
     global panServoAngle
     global tiltServoAngle
@@ -96,6 +95,16 @@ def send_servo_update(port):
     port.write(chr(panServoAngle))
     port.write(chr(tiltServoAngle))
     port.write('#')
+
+def read_servo_update(port):
+    global panServoAngle
+    
+    if (port.inWaiting() > 0):
+        panServoAngle = ord(port.read())
+        return True
+    else:
+        return False
+
        
 def update_leds(diagonal):
     if (diagonal > 0):
@@ -118,6 +127,8 @@ def main():
     noservos = False
     noimage = False
     nothreshold = False
+
+    next_servo_update = 0
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], None, ["help","noservos","noleds","noimage","nothreshold"])
@@ -170,6 +181,7 @@ def main():
     else:
         print "Serial setup skipped"
 
+    wiringpi.delay(16000)
     print "Starting object tracking"
 
     frames = 0
@@ -179,7 +191,11 @@ def main():
         
         if noservos == False:
             update_servos(diagonal, center_x, center_y)
-            send_servo_update(port)
+            if (read_servo_update(port)):
+                next_servo_update = wiringpi.millis()+100;
+            
+            if wiringpi.millis() > next_servo_update:
+                send_servo_update(port)
 
         if noleds == False:
             update_leds(diagonal)
@@ -189,7 +205,7 @@ def main():
         numsecs = currtime - start_time
         fps = frames / numsecs
 
-        sys.stdout.write("Found ball at: (%d, %d)       "%(center_x,center_y) + "Current FPS: %d     \t\t\r" %fps)
+        sys.stdout.write("Found ball at: (%d, %d)       "%(center_x,center_y) + " Deviation %d     " %(90-panServoAngle)+"Current FPS: %d     \t\t\r\n" %fps)
         sys.stdout.flush()
 
     return

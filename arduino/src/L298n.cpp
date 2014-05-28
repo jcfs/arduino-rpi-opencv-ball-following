@@ -37,11 +37,8 @@ L298n::L298n(int enable_motor_A_pin, int motor_A1_pin, int motor_A2_pin, int ena
 }
 
 void L298n::setMotorsSpeed(int value) {
-    int motor_a_speed = map(value, 0, 255, 0, MOTOR_A_TOP_SPEED);
-    int motor_b_speed = map(value, 0, 255, 0, MOTOR_B_TOP_SPEED);
-
-    setMotorASpeed(motor_a_speed);
-    setMotorBSpeed(motor_b_speed);
+    setMotorASpeed(value);
+    setMotorBSpeed(value);
 }
 
 void L298n::setMotorASpeed(int value) {
